@@ -2,107 +2,83 @@ import streamlit as st
 from prayer_times_calculator import PrayerTimesCalculator
 from datetime import date, datetime, timedelta
 from geopy.geocoders import Nominatim
+import time
 
-# إعدادات الصفحة والجمالية
 st.set_page_config(page_title="مواقيت الصلاة في تونس", page_icon="🕌", layout="centered")
 
-# إضافة CSS لتعديل اتجاه النص من اليمين إلى اليسار وتجميل البطاقات
+# تحسين المظهر ودعم RTL
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
-    
     html, body, [class*="st-"] {
-        direction: RTL;
-        text-align: right;
-        font-family: 'Cairo', sans-serif;
+        direction: RTL; text-align: right; font-family: 'Cairo', sans-serif;
+    }
+    .countdown-box {
+        background: #1e88e5; color: white; padding: 20px;
+        border-radius: 15px; text-align: center; margin-bottom: 20px;
+        box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
     }
     .prayer-card {
-        background-color: #f8f9fa;
-        border-radius: 15px;
-        padding: 20px;
-        text-align: center;
-        border: 1px solid #e0e0e0;
-        box-shadow: 2px 2px 5px rgba(0,0,0,0.05);
-        margin-bottom: 10px;
-    }
-    .prayer-name { color: #2c3e50; font-size: 1.2rem; font-weight: bold; }
-    .prayer-time { color: #1e88e5; font-size: 1.8rem; font-weight: bold; }
-    .next-prayer-box {
-        background: linear-gradient(90deg, #1e88e5, #1565c0);
-        color: white;
-        padding: 20px;
-        border-radius: 15px;
-        text-align: center;
-        margin-bottom: 25px;
+        background: white; border-radius: 12px; padding: 15px;
+        text-align: center; border: 1px solid #eee; margin: 5px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🇹🇳 مواقيت الصلاة في تونس")
+st.title("🇹🇳 أوقات الصلاة بتونس")
 
-# حقل البحث
-place = st.text_input("📍 ابحث عن المعتمدية أو القرية:", "ماطر")
-
-geolocator = Nominatim(user_agent="tunisia_prayer_app_v3")
+place = st.text_input("📍 أدخل المكان (مدينة، معتمدية، قرية):", "ماطر")
+geolocator = Nominatim(user_agent="tunisia_prayer_app_v4")
 location = geolocator.geocode(place + ", Tunisia")
 
 if location:
-    st.success(f"📍 الموقع الحالي: {location.address}")
-    
-    # حساب الأوقات
     calc = PrayerTimesCalculator(
-        latitude=location.latitude,
-        longitude=location.longitude,
-        calculation_method="mwl",
-        date=str(date.today())
+        latitude=location.latitude, longitude=location.longitude,
+        calculation_method="mwl", date=str(date.today())
     )
     times = calc.fetch_prayer_times()
+    prayers_ar = {"Fajr": "الفجر", "Sunrise": "الشروق", "Dhuhr": "الظهر", "Asr": "العصر", "Maghrib": "المغرب", "Isha": "العشاء"}
 
-    # ترتيب الصلوات للعرض العربي
-    prayers_ar = {
-        "Fajr": "الفجر", "Sunrise": "الشروق", "Dhuhr": "الظهر", 
-        "Asr": "العصر", "Maghrib": "المغرب", "Isha": "العشاء"
-    }
+    # --- منطق العداد التنازلي ---
+    now = datetime.now()
+    next_p_name = ""
+    next_p_time = None
 
-    # حساب الصلاة القادمة والوقت المتبقي
-    now_dt = datetime.now()
-    current_time_str = now_dt.strftime("%H:%M")
-    
-    next_prayer_name = "Fajr"
-    next_prayer_time_str = times["Fajr"]
-    
     for eng, ar in prayers_ar.items():
-        if times[eng] > current_time_str:
-            next_prayer_name = eng
-            next_prayer_time_str = times[eng]
+        p_time = datetime.strptime(times[eng], "%H:%M").replace(year=now.year, month=now.month, day=now.day)
+        if p_time > now:
+            next_p_name = ar
+            next_p_time = p_time
             break
+    
+    # إذا انتهت صلوات اليوم، الصلاة القادمة هي فجر الغد
+    if not next_p_time:
+        next_p_name = "الفجر"
+        next_p_time = datetime.strptime(times["Fajr"], "%H:%M").replace(year=now.year, month=now.month, day=now.day) + timedelta(days=1)
 
-    # عرض الصلاة القادمة بشكل بارز
+    # حساب الفرق الزمني للعداد
+    diff = next_p_time - now
+    hours, remainder = divmod(diff.seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    # عرض العداد التنازلي
     st.markdown(f"""
-        <div class="next-prayer-box">
-            <h3>الصلاة القادمة: {prayers_ar[next_prayer_name]}</h3>
-            <h1>{next_prayer_time_str}</h1>
-            <p>التوقيت الحالي: {current_time_str}</p>
+        <div class="countdown-box">
+            <h4>بقي على صلاة {next_p_name}</h4>
+            <h1 style='font-size: 3rem;'>{hours:02d}:{minutes:02d}:{seconds:02d}</h1>
         </div>
     """, unsafe_allow_html=True)
 
-    # عرض جميع الأوقات في شبكة (Grid) من اليمين لليسار
+    # عرض بقية الأوقات
     cols = st.columns(3)
-    # نعكس القائمة لعرضها من اليمين لليسار في Streamlit Columns
-    prayer_items = list(prayers_ar.items())
-    
-    for i in range(0, 6, 3):
-        row_items = prayer_items[i:i+3]
-        for j, (eng, ar) in enumerate(row_items):
-            with cols[j]:
-                st.markdown(f"""
-                    <div class="prayer-card">
-                        <div class="prayer-name">{ar}</div>
-                        <div class="prayer-time">{times[eng]}</div>
-                    </div>
-                """, unsafe_allow_html=True)
-else:
-    st.error("لم نتمكن من العثور على المكان، يرجى المحاولة مرة أخرى.")
+    p_list = list(prayers_ar.items())
+    for i, (eng, ar) in enumerate(p_list):
+        with cols[i % 3]:
+            st.markdown(f"""<div class="prayer-card"><b>{ar}</b><br><span style='font-size:1.5rem;'>{times[eng]}</span></div>""", unsafe_allow_html=True)
 
-st.markdown("---")
-st.caption("تم ضبط الحسابات وفقاً لمعايير وزارة الشؤون الدينية التونسية (زاوية 18°)")
+    # تحديث الصفحة تلقائياً كل دقيقة ليبقى العداد دقيقاً
+    time.sleep(1)
+    st.rerun()
+
+else:
+    st.error("الموقع غير معروف.")
