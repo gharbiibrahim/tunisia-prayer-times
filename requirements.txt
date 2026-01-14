@@ -2,3 +2,4 @@ streamlit
 prayer-times-calculator
 geopy
 hijri-converter
+streamlit-js-eval
