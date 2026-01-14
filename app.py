@@ -3,9 +3,8 @@ import pandas as pd
 from prayer_times_calculator import PrayerTimesCalculator
 from datetime import date, datetime, timedelta
 from hijri_converter import Gregorian
-import math
 
-# 1. إعدادات الصفحة والتصميم
+# --- إعدادات الصفحة والتصميم ---
 st.set_page_config(page_title="مواقيت الصلاة الرسمية بتونس", page_icon="🕌", layout="centered")
 
 st.markdown("""
@@ -13,16 +12,19 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
     html, body, [class*="st-"] { direction: RTL; text-align: right; font-family: 'Cairo', sans-serif; }
     .big-time-box { text-align: center; padding: 20px; background-color: #f8f9fa; border-radius: 20px; border: 3px solid #d32f2f; margin-bottom: 20px; }
-    .day-name { font-size: 3rem; font-weight: bold; color: #2c3e50; }
-    .current-time { font-size: 5rem; font-weight: bold; color: #d32f2f; line-height: 1; }
-    .prayer-card { background: white; padding: 12px; border-radius: 15px; text-align: center; border: 1px solid #eee; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-    .prayer-time { font-size: 1.8rem; font-weight: bold; color: #d32f2f; }
-    .dhikr-box { background-color: #fff3e0; padding: 20px; border-right: 5px solid #ff9800; border-radius: 10px; margin-top: 20px; font-size: 1.2rem; }
-    .qibla-box { background-color: #e8f5e9; padding: 15px; border-radius: 10px; text-align: center; border: 1px solid #4caf50; margin-top: 10px; }
+    .day-name { font-size: 3.5rem; font-weight: bold; color: #2c3e50; display: block; }
+    .current-time { font-size: 5.5rem; font-weight: bold; color: #d32f2f; line-height: 1.1; }
+    .date-container { font-size: 1.8rem; margin-top: 10px; color: #555; }
+    .hijri-date { font-weight: bold; color: #b71c1c; }
+    .gregorian-date { font-size: 1.4rem; color: #7f8c8d; }
+    .prayer-card { background: white; padding: 12px; border-radius: 15px; text-align: center; border: 1px solid #eee; margin-bottom: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+    .prayer-time { font-size: 2rem; font-weight: bold; color: #d32f2f; }
+    .dhikr-box { background-color: #fff3e0; padding: 15px; border-right: 5px solid #ff9800; border-radius: 10px; margin-top: 20px; font-size: 1.2rem; }
+    .qibla-box { background-color: #e8f5e9; padding: 12px; border-radius: 10px; text-align: center; border: 1px solid #4caf50; margin-top: 10px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. بيانات الموقع (تونس)
+# --- بيانات الإحداثيات الثابتة للولايات ---
 TUNISIA_COORDS = {
     "تونس": (36.8065, 10.1815), "بنزرت": (37.2744, 9.8739), "أريانة": (36.8665, 10.1647),
     "بن عروس": (36.7531, 10.2222), "منوبة": (36.8078, 10.0863), "نابل": (36.4561, 10.7376),
@@ -34,73 +36,79 @@ TUNISIA_COORDS = {
     "قابس": (33.8815, 10.0982), "مدنين": (33.3550, 10.4922), "تطاوين": (32.9297, 10.4518)
 }
 
-# 3. تحميل البيانات الهرمية من ملفك
+# --- تحميل وتنظيف البيانات من الملف ---
 @st.cache_data
-def load_data():
+def load_and_clean_data():
     try:
         df = pd.read_csv('nouveau 2085.txt', sep='\t', names=['الولاية', 'المعتمدية', 'العمادة'], engine='python', encoding='utf-8')
-        return df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
-    except: return pd.DataFrame()
+        for col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+        return df
+    except:
+        return pd.DataFrame()
 
-df = load_data()
+df_clean = load_and_clean_data()
 
-# 4. واجهة الاختيار
+# --- واجهة المستخدم ---
 st.title("🕌 حقيبة المؤمن التونسي")
-col_s, col_d, col_v = st.columns(3)
-with col_s: state = st.selectbox("الولاية", ["اختر"] + sorted(df['الولاية'].unique().tolist()))
-with col_d: district = st.selectbox("المعتمدية", sorted(df[df['الولاية']==state]['المعتمدية'].unique()) if state != "اختر" else [])
-with col_v: village = st.selectbox("العمادة", sorted(df[(df['الولاية']==state) & (df['المعتمدية']==district)]['العمادة'].unique()) if district else [])
 
-if state != "اختر":
+col1, col2, col3 = st.columns(3)
+with col1:
+    selected_state = st.selectbox("الولاية", ["اختر"] + sorted(df_clean['الولاية'].unique().tolist()) if not df_clean.empty else [])
+with col2:
+    districts = sorted(df_clean[df_clean['الولاية'] == selected_state]['المعتمدية'].unique()) if selected_state != "اختر" else []
+    selected_district = st.selectbox("المعتمدية", ["اختر"] + districts)
+with col3:
+    villages = sorted(df_clean[(df_clean['الولاية'] == selected_state) & (df_clean['المعتمدية'] == selected_district)]['العمادة'].unique()) if selected_district != "اختر" else []
+    selected_village = st.selectbox("العمادة", ["اختر"] + villages)
+
+if selected_state != "اختر":
     now = datetime.now()
-    lat, lon = TUNISIA_COORDS[state]
+    lat, lon = TUNISIA_COORDS[selected_state]
     
-    # حساب المواقيت (زاوية 18 وتعديلات تونس)
+    # حساب المواقيت بمعايير تونس (زاوية 18 وتعديلات الظهر والمغرب)
     calc = PrayerTimesCalculator(latitude=lat, longitude=lon, calculation_method="mwl", date=str(date.today()))
     times = calc.fetch_prayer_times()
     def adj(t, m): return (datetime.strptime(t, "%H:%M") + timedelta(minutes=m)).strftime("%H:%M")
     
-    prayers = {"الفجر": times["Fajr"], "الشروق": times["Sunrise"], "الظهر": adj(times["Dhuhr"], 7), 
-               "العصر": times["Asr"], "المغرب": adj(times["Maghrib"], 2), "العشاء": adj(times["Isha"], 6)}
+    prayers = {
+        "الفجر": times["Fajr"], "الشروق": times["Sunrise"],
+        "الظهر": adj(times["Dhuhr"], 7), "العصر": times["Asr"],
+        "المغرب": adj(times["Maghrib"], 2), "العشاء": adj(times["Isha"], 6)
+    }
 
-    # عرض الوقت والتاريخ
-    day_ar = {"Monday":"الاثنين","Tuesday":"الثلاثاء","Wednesday":"الأربعاء","Thursday":"الخميس","Friday":"الجمعة","Saturday":"السبت","Sunday":"الأحد"}[now.strftime('%A')]
+    # عرض الوقت واليوم
+    days_ar = {"Monday": "الاثنين", "Tuesday": "الثلاثاء", "Wednesday": "الأربعاء", "Thursday": "الخميس", "Friday": "الجمعة", "Saturday": "السبت", "Sunday": "الأحد"}
     hijri = Gregorian(now.year, now.month, now.day).to_hijri()
     
     st.markdown(f"""
         <div class="big-time-box">
-            <div class="day-name">{day_ar}</div>
-            <div class="current-time">{now.strftime('%H:%M')}</div>
-            <div style="font-size:1.5rem;">{hijri.day} {hijri.month_name()} {hijri.year} هـ | {now.strftime('%d/%m/%Y')} م</div>
+            <span class="day-name">{days_ar[now.strftime('%A')]}</span>
+            <span class="current-time">{now.strftime('%H:%M')}</span>
+            <div class="date-container">
+                <span class="hijri-date">{hijri.day} {hijri.month_name()} {hijri.year} هـ</span><br>
+                <span class="gregorian-date">{now.strftime('%d/%m/%Y')} م</span>
+            </div>
         </div>
     """, unsafe_allow_html=True)
 
-    # عرض المواقيت
+    # عرض جدول الصلوات
     cols = st.columns(3)
     for i, (name, val) in enumerate(prayers.items()):
-        with cols[i%3]: st.markdown(f"<div class='prayer-card'><b>{name}</b><div class='prayer-time'>{val}</div></div>", unsafe_allow_html=True)
+        with cols[i % 3]:
+            st.markdown(f"<div class='prayer-card'><b>{name}</b><div class='prayer-time'>{val}</div></div>", unsafe_allow_html=True)
 
-    # ميزة 1: اتجاه القبلة (حساب فلكي تقريبي لتونس)
-    # زاوية القبلة من تونس تقريباً 100-110 درجة من الشمال
-    st.markdown(f"""
-        <div class="qibla-box">
-            <b>🧭 اتجاه القبلة لولاية {state}:</b> {105 if state in ["تونس","بنزرت"] else 100} درجة من اتجاه الشمال
-        </div>
-    """, unsafe_allow_html=True)
-
-    # ميزة 2: أذكار متغيرة
-    is_morning = 5 <= now.hour < 12
-    dhikr = "أصبحنا وأصبح الملك لله والحمد لله" if is_morning else "أمسينا وأمسى الملك لله والحمد لله"
-    dhikr_title = "أذكار الصباح" if is_morning else "أذكار المساء"
-    st.markdown(f"""<div class="dhikr-box"><b>✨ {dhikr_title}:</b><br>{dhikr}... (اللهم بك أصبحنا وبك أمسينا)</div>""", unsafe_allow_html=True)
-
-    # ميزة 3: مشاركة المواقيت
-    share_text = f"مواقيت الصلاة في {state} ({village}) ليوم {day_ar}:\n" + "\n".join([f"{k}: {v}" for k,v in prayers.items()])
-    st.download_button("📤 نسخ ومشاركة المواقيت", share_text, file_name="prayers.txt")
+    # القبلة والأذكار
+    st.markdown(f"<div class='qibla-box'>🧭 اتجاه القبلة لولاية {selected_state}: {105 if selected_state in ['تونس','بنزرت','نابل'] else 100} درجة من الشمال</div>", unsafe_allow_html=True)
     
-    # رابط واتساب مباشر
+    is_morning = 4 <= now.hour < 12
+    dhikr = "أصبحنا وأصبح الملك لله والحمد لله" if is_morning else "أمسينا وأمسى الملك لله والحمد لله"
+    st.markdown(f"<div class='dhikr-box'><b>✨ {'أذكار الصباح' if is_morning else 'أذكار المساء'}:</b><br>{dhikr}</div>", unsafe_allow_html=True)
+
+    # مشاركة واتساب
+    share_text = f"مواقيت الصلاة في {selected_state} - {selected_village} لليوم:\n" + "\n".join([f"{k}: {v}" for k,v in prayers.items()])
     whatsapp_url = f"https://wa.me/?text={share_text.replace(' ', '%20').replace(':', '%3A')}"
-    st.markdown(f"""<a href="{whatsapp_url}" target="_blank"><button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:10px; cursor:pointer;">🟢 مشاركة عبر واتساب</button></a>""", unsafe_allow_html=True)
+    st.markdown(f"<a href='{whatsapp_url}' target='_blank'><button style='width:100%; border-radius:15px; background-color:#25D366; color:white; border:none; padding:15px; font-weight:bold; cursor:pointer;'>🟢 مشاركة المواقيت عبر واتساب</button></a>", unsafe_allow_html=True)
 
 else:
-    st.info("الرجاء اختيار الموقع من القوائم أعلاه.")
+    st.info("الرجاء تحديد الموقع من القوائم أعلاه لعرض المواقيت.")
