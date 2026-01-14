@@ -1,54 +1,48 @@
 import streamlit as st
 from adhan import adhan
 from adhan.methods import custom, ASAR_STANDARD
-from datetime import date, datetime
-import pandas as pd
+from datetime import date
+from geopy.geocoders import Nominatim
 
-# إعدادات الصفحة
-st.set_page_config(page_title="توقيت الصلاة بتونس", layout="centered")
+# إعدادات واجهة تونسية
+st.set_page_config(page_title="مواقيت الصلاة - تونس", page_icon="🕌")
 
-# دالة حساب الأوقات
-def get_times(lat, lon):
-    tunisia_params = custom(fajr_angle=18, isha_angle=18, method_name="Tunisia")
+# دالة الحساب (بزاوية 18 درجة لوزارة الشؤون الدينية)
+def get_prayer_times(lat, lon):
+    params = custom(fajr_angle=18, isha_angle=18, method_name="Tunisia")
     return adhan(
         day=date.today(),
         location=(lat, lon),
-        parameters=tunisia_params,
+        parameters=params,
         timezone_offset=1,
         asasr_method=ASAR_STANDARD
     )
 
-# واجهة التطبيق
-st.title("🌙 أوقات الصلاة في الجمهورية التونسية")
-st.write(f"اليوم: {date.today().strftime('%Y-%m-%d')}")
+st.title("🇹🇳 مواقيت الصلاة في تونس")
+st.write("حساب دقيق للمعتمديات والقرى بناءً على الموقع الجغرافي")
 
-# قائمة الولايات (أمثلة للإحداثيات)
-states = {
-    "تونس العاصمة": (36.8065, 10.1815),
-    "بنزرت (ماطر)": (37.0400, 9.6650),
-    "صفاقس": (34.7400, 10.7600),
-    "سوسة": (35.8256, 10.6084),
-    "قابس": (33.8815, 10.0982),
-    "تطاوين": (32.9297, 10.4518)
-}
+# خيار البحث عن أي مكان في تونس
+place = st.text_input("ابحث عن مدينتك، معتمديتك، أو قريتك:", "تونس العاصمة")
 
-selected_state = st.selectbox("اختر الولاية أو أقرب مدينة كبيرة:", list(states.keys()))
-coords = states[selected_state]
+geolocator = Nominatim(user_agent="tunisia_prayer_app_2026")
+location = geolocator.geocode(place + ", Tunisia")
 
-# حساب الأوقات
-p_times = get_times(coords[0], coords[1])
-
-# عرض النتائج بشكل جميل
-st.markdown("---")
-cols = st.columns(3)
-display_order = [
-    ("الفجر", "fajr"), ("الشروق", "shuruq"), ("الظهر", "zuhr"),
-    ("العصر", "asr"), ("المغرب", "maghrib"), ("العشاء", "isha")
-]
-
-for i, (name, key) in enumerate(display_order):
-    with cols[i % 3]:
-        st.metric(label=name, value=p_times[key].strftime("%H:%M"))
+if location:
+    st.success(f"📍 الموقع: {location.address}")
+    times = get_prayer_times(location.latitude, location.longitude)
+    
+    # عرض الأوقات في مربعات جذابة
+    cols = st.columns(3)
+    prayers = [
+        ("الفجر", "fajr"), ("الشروق", "shuruq"), ("الظهر", "zuhr"),
+        ("العصر", "asr"), ("المغرب", "maghrib"), ("العشاء", "isha")
+    ]
+    
+    for i, (name, key) in enumerate(prayers):
+        with cols[i % 3]:
+            st.info(f"**{name}**\n\n# {times[key].strftime('%H:%M')}")
+else:
+    st.warning("يرجى التأكد من كتابة اسم المكان بشكل صحيح (مثال: 'منزل تميم' أو 'رمادة')")
 
 st.markdown("---")
-st.caption("تم ضبط الحسابات وفقاً لزاوية 18 درجة (وزارة الشؤون الدينية التونسية).")
+st.caption("يعتمد هذا التطبيق على الحساب الفلكي لوزارة الشؤون الدينية التونسية.")
