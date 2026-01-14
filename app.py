@@ -1,64 +1,90 @@
 import streamlit as st
 import pandas as pd
-import glob
 import os
+import glob
 from prayer_times_calculator import PrayerTimesCalculator
 from datetime import date, datetime, timedelta
 from hijri_converter import Gregorian
 
-# --- إعدادات الواجهة ---
-st.set_page_config(page_title="مواقيت الصلاة بتونس - دقة الإكسيل", page_icon="🕌")
+# --- إعدادات الصفحة ---
+st.set_page_config(page_title="مواقيت الصلاة بتونس", page_icon="🕌", layout="centered")
 
-# دالة لجلب قائمة الولايات المتاحة من أسماء الملفات
-def get_available_states():
+# دالة ذكية لجلب الولايات من أسماء الملفات التي رفعتها
+def get_states_from_files():
+    # البحث عن الملفات التي تبدأ بـ tun_admgz_2022.xls
     files = glob.glob("tun_admgz_2022.xls - *.csv")
-    states = [f.split("- ")[1].replace(".csv", "").strip() for f in files]
+    states = []
+    for f in files:
+        # استخراج اسم الولاية من اسم الملف
+        state_name = f.split("- ")[1].replace(".csv", "").strip()
+        states.append(state_name)
     return sorted(states)
 
-# دالة لتحميل بيانات ولاية معينة من ملف الـ CSV الخاص بها
-def load_state_data(state_name):
-    file_path = f"tun_admgz_2022.xls - {state_name}.csv"
-    if os.path.exists(file_path):
-        # قراءة الملف - الأعمدة في ملفاتك هي: الإقليم، المحافظة، المعتمدية، العمادة...
-        df = pd.read_csv(file_path, header=None)
-        # حسب هيكلة ملفاتك: العمود 2 هو الولاية، العمود 4 هو المعتمدية، العمود 6 هو العمادة
-        df_cleaned = df[[2, 4, 6]].copy()
-        df_cleaned.columns = ['الولاية', 'المعتمدية', 'العمادة']
-        return df_cleaned
-    return pd.DataFrame()
+# دالة تحميل البيانات من ملف الـ CSV
+@st.cache_data
+def load_data(state):
+    file_path = f"tun_admgz_2022.xls - {state}.csv"
+    try:
+        # ملفاتك لا تحتوي على صف عناوين (Header)، لذا نحدد الأعمدة يدوياً
+        # العمود 2: الولاية، العمود 4: المعتمدية، العمود 6: العمادة
+        df = pd.read_csv(file_path, header=None, encoding='utf-8')
+        df_selected = df[[2, 4, 6]].copy()
+        df_selected.columns = ['الولاية', 'المعتمدية', 'العمادة']
+        # تنظيف البيانات من المسافات
+        for col in df_selected.columns:
+            df_selected[col] = df_selected[col].astype(str).str.strip()
+        return df_selected
+    except Exception as e:
+        return pd.DataFrame(columns=['الولاية', 'المعتمدية', 'العمادة'])
 
-# --- واجهة المستخدم ---
-st.title("🕌 مواقيت الصلاة حسب السجل الرسمي")
+# --- الواجهة ---
+st.title("🕌 مواقيت الصلاة بتونس")
+st.write("بيانات رسمية مستخرجة من السجل الإداري 2022")
 
-states = get_available_states()
-selected_state = st.selectbox("اختر الولاية", ["اختر"] + states)
+available_states = get_states_from_files()
 
-if selected_state != "اختر":
-    df_state = load_state_data(selected_state)
-    
-    # استخراج المعتمديات (ستظهر 14 فقط لبنزرت كما طلبت)
-    districts = sorted(df_state['المعتمدية'].unique())
-    selected_district = st.selectbox("اختر المعتمدية", ["اختر"] + districts)
-    
-    if selected_district != "اختر":
-        # استخراج العمادات التابعة للمعتمدية المختارة
-        villages = sorted(df_state[df_state['المعتمدية'] == selected_district]['العمادة'].unique())
-        selected_village = st.selectbox("اختر العمادة", ["اختر"] + villages)
+if not available_states:
+    st.error("لم يتم العثور على ملفات البيانات. تأكد من وجود ملفات CSV في مجلد التطبيق.")
+else:
+    # 1. اختيار الولاية
+    selected_state = st.selectbox("اختر الولاية", ["اختر"] + available_states)
+
+    if selected_state != "اختر":
+        df = load_data(selected_state)
         
-        if selected_village != "اختر":
-            # إحداثيات الولايات (يمكنك توسيعها لتشمل إحداثيات أدق للمعتمديات)
-            COORDS = {
-                "بنزرت": (37.2744, 9.8739), "تونس": (36.8065, 10.1815), # ... بقية الإحداثيات
-            }
+        # 2. اختيار المعتمدية (ستظهر 14 فقط في بنزرت لأننا نستخدم unique)
+        districts = sorted(df['المعتمدية'].unique())
+        selected_district = st.selectbox("اختر المعتمدية", ["اختر"] + districts)
+        
+        if selected_district != "اختر":
+            # 3. اختيار العمادة
+            villages = sorted(df[df['المعتمدية'] == selected_district]['العمادة'].unique())
+            selected_village = st.selectbox("اختر العمادة", ["اختر"] + villages)
             
-            lat, lon = COORDS.get(selected_state, (36.8065, 10.1815))
-            
-            # حساب المواقيت
-            calc = PrayerTimesCalculator(latitude=lat, longitude=lon, calculation_method="mwl", date=str(date.today()))
-            times = calc.fetch_prayer_times()
-            
-            # عرض النتائج بتنسيق جذاب
-            st.success(f"الموقع المعتمد: {selected_village}، {selected_district}، {selected_state}")
-            
-            # (هنا تضع مصفوفة عرض المواقيت كما في الكود السابق)
-            st.write(f"فجر: {times['Fajr']} | ظهر: {times['Dhuhr']} | عصر: {times['Asr']} | مغرب: {times['Maghrib']} | عشاء: {times['Isha']}")
+            if selected_village != "اختر":
+                # --- حساب المواقيت ---
+                # إحداثيات تقريبية (يمكن تطويرها لاحقاً لتكون أكثر دقة لكل معتمدية)
+                COORDS = {
+                    "Tunis": (36.80, 10.18), "Bizerte": (37.27, 9.87), "Sousse": (35.82, 10.63),
+                    "Sfax": (34.74, 10.76), "Kairouan": (35.67, 10.09), "Béja": (36.73, 9.18),
+                    "Jendouba": (36.50, 8.78), "Nabeul": (36.45, 10.73) # أضف بقية الولايات هنا
+                }
+                
+                # استخدام اسم الولاية بالإنجليزية للبحث في القاموس
+                # إذا لم توجد، نستخدم إحداثيات العاصمة كافتراضي
+                lat, lon = COORDS.get(selected_state, (36.80, 10.18))
+                
+                try:
+                    calc = PrayerTimesCalculator(latitude=lat, longitude=lon, calculation_method="mwl", date=str(date.today()))
+                    times = calc.fetch_prayer_times()
+                    
+                    # عرض النتائج
+                    st.success(f"الموقع: {selected_village} | {selected_district} | {selected_state}")
+                    
+                    cols = st.columns(5)
+                    prayers = [("الفجر", "Fajr"), ("الظهر", "Dhuhr"), ("العصر", "Asr"), ("المغرب", "Maghrib"), ("العشاء", "Isha")]
+                    
+                    for i, (name, key) in enumerate(prayers):
+                        cols[i].metric(name, times[key])
+                except:
+                    st.warning("تعذر الاتصال بخدمة المواقيت، يرجى المحاولة لاحقاً.")
