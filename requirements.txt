@@ -1,3 +1,4 @@
 streamlit
-adhan
+prayer-times-calculator
 geopy
+
