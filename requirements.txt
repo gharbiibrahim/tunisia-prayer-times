@@ -1,4 +1,3 @@
-streamlit
 pandas
 prayer-times-calculator
-hijri-converter
+ummalqura
