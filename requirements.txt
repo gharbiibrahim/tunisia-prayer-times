@@ -1,3 +1,4 @@
-pandas
-prayer-times-calculator
+streamlit-js-eval
 ummalqura
+prayer-times-calculator
+pandas
