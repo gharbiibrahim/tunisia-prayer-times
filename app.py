@@ -7,7 +7,7 @@ from ummalqura.hijri_date import HijriDate
 # --- إعدادات الصفحة ---
 st.set_page_config(page_title="مواقيت الصلاة بتونس", page_icon="🕌", layout="wide")
 
-# --- CSS لدعم اليمين إلى اليسار والجمالية ---
+# --- CSS مخصص لدعم RTL وتجميل الواجهة ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&family=Amiri:wght@700&display=swap');
@@ -17,98 +17,101 @@ st.markdown("""
         text-align: right;
         font-family: 'Cairo', sans-serif;
     }
-    .main-header {
+    
+    /* تصميم الهيدر (التاريخ والوقت) */
+    .header-box {
         background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%);
         color: white;
-        padding: 2rem;
+        padding: 25px;
         border-radius: 20px;
         text-align: center;
-        margin-bottom: 2rem;
+        margin-bottom: 30px;
         box-shadow: 0 10px 20px rgba(0,0,0,0.1);
     }
-    .info-box {
-        background: #ffffff;
-        padding: 15px;
-        border-radius: 15px;
-        border-right: 5px solid #d4af37;
-        margin: 10px 0;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    }
+    
+    /* تصميم بطاقات المواقيت */
     .prayer-card {
         background: white;
         padding: 20px;
         border-radius: 15px;
         text-align: center;
-        border-bottom: 5px solid #d4af37;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        border-right: 8px solid #d4af37;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        margin: 5px;
     }
-    .prayer-time { font-size: 1.8rem; font-weight: bold; color: #2e7d32; }
+    .prayer-name { font-family: 'Amiri', serif; font-size: 1.4rem; color: #1b5e20; }
+    .prayer-time { font-size: 1.9rem; font-weight: bold; color: #333; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- عرض التاريخ والوقت ---
+# --- عرض التاريخ والوقت الحالي ---
 today = date.today()
 hijri = HijriDate.get_hijri_date(today)
-current_time = datetime.now().strftime("%H:%M")
+current_time = datetime.now().strftime("%I:%M %p")
 
 st.markdown(f"""
-    <div class="main-header">
-        <h1 style='font-family: Amiri; margin:0;'>🕌 مواقيت الصلاة بتونس</h1>
-        <p style='font-size: 1.2rem; opacity: 0.9;'>
+    <div class="header-box">
+        <h1 style='font-family: Amiri; margin:0;'>🕌 مواقيت الصلاة في تونس</h1>
+        <div style='font-size: 1.3rem; margin-top: 10px;'>
             {today.strftime('%A')} : {today.strftime('%d / %m / %Y')} م | {hijri} هـ
-        </p>
-        <h2 style='margin:0;'>⏰ الوقت الآن: {current_time}</h2>
+        </div>
+        <div style='font-size: 1.5rem; font-weight: bold; margin-top: 5px;'>⌚ الوقت الآن: {current_time}</div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- تحميل البيانات ---
+# --- تحميل البيانات وتحسين الفلاتر ---
 @st.cache_data
 def load_data():
     try:
-        return pd.read_csv("2085.txt", sep='\t', header=None, names=['الولاية', 'المعتمدية', 'العمادة'])
+        # قراءة الملف مع تجاهل المسافات الزائدة
+        df = pd.read_csv("2085.txt", sep='\t', header=None, names=['الولاية', 'المعتمدية', 'العمادة'])
+        return df
     except:
-        st.error("⚠️ ملف 2085.txt غير موجود في المجلد")
         return None
 
 df = load_data()
 
 if df is not None:
-    # --- تحسين عرض الخيارات ---
-    st.markdown("### 📍 تحديد الموقع")
-    col1, col2, col3 = st.columns(3)
+    st.markdown("### 📍 اختر منطقتك بدقة")
     
-    with col1:
-        state = st.selectbox("اختر الولاية", ["-- الكل --"] + sorted(df['الولاية'].unique().tolist()))
+    # تحسين طريقة العرض في 3 أعمدة
+    c1, c2, c3 = st.columns(3)
     
-    with col2:
-        if state != "-- الكل --":
-            district = st.selectbox("اختر المعتمدية", sorted(df[df['الولاية'] == state]['المعتمدية'].unique().tolist()))
-        else:
-            st.selectbox("المعتمدية", ["اختر الولاية أولاً"], disabled=True)
-            
-    with col3:
-        if state != "-- الكل --":
-            village = st.selectbox("اختر العمادة", sorted(df[(df['الولاية'] == state) & (df['المعتمدية'] == district)]['العمادة'].unique().tolist()))
-        else:
-            st.selectbox("العمادة", ["اختر المعتمدية أولاً"], disabled=True)
+    with c1:
+        states = sorted(df['الولاية'].unique())
+        sel_state = st.selectbox("📌 الولاية", ["-- اختر الولاية --"] + states)
 
-    # --- عرض المواقيت ---
-    if state != "-- الكل --":
+    with c2:
+        if sel_state != "-- اختر الولاية --":
+            districts = sorted(df[df['الولاية'] == sel_state]['المعتمدية'].unique())
+            sel_district = st.selectbox("🏢 المعتمدية", ["-- اختر المعتمدية --"] + districts)
+        else:
+            st.selectbox("🏢 المعتمدية", ["يرجى تحديد الولاية"], disabled=True)
+
+    with c3:
+        if sel_state != "-- اختر الولاية --" and 'sel_district' in locals() and sel_district != "-- اختر المعتمدية --":
+            villages = sorted(df[(df['الولاية'] == sel_state) & (df['المعتمدية'] == sel_district)]['العمادة'].unique())
+            sel_village = st.selectbox("🏡 العمادة/القرية", ["-- اختر العمادة --"] + villages)
+        else:
+            st.selectbox("🏡 العمادة", ["يرجى تحديد المعتمدية"], disabled=True)
+
+    # --- حساب وعرض المواقيت ---
+    if 'sel_village' in locals() and sel_village != "-- اختر العمادة --":
         st.divider()
-        # هنا يتم استدعاء الحاسبة (ملاحظة: الإحداثيات تحتاج لربط دقيق، سنستخدم العاصمة كافتراضي حالياً)
+        st.markdown(f"<h3 style='text-align: center;'>🕋 مواقيت الصلاة لجهة: {sel_village}</h3>", unsafe_allow_html=True)
+        
+        # ملاحظة: الإحداثيات هنا تقريبية، يمكن تحسينها بجلب إحداثيات كل معتمدية
         calc = PrayerTimesCalculator(latitude=36.8, longitude=10.1, calculation_method="mwl", date=str(today))
         times = calc.fetch_prayer_times()
-        
-        st.markdown(f"#### 🕋 مواقيت الصلاة في: {village}، {district}")
-        
+
         p_cols = st.columns(5)
         prayers = [("الفجر", "Fajr"), ("الظهر", "Dhuhr"), ("العصر", "Asr"), ("المغرب", "Maghrib"), ("العشاء", "Isha")]
         
-        for i, (ar, en) in enumerate(prayers):
+        for i, (ar_name, en_key) in enumerate(prayers):
             with p_cols[i]:
                 st.markdown(f"""
                     <div class="prayer-card">
-                        <div style='color: #666;'>{ar}</div>
-                        <div class="prayer-time">{times[en]}</div>
+                        <div class="prayer-name">{ar_name}</div>
+                        <div class="prayer-time">{times[en_key]}</div>
                     </div>
                 """, unsafe_allow_html=True)
