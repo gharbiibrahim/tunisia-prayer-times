@@ -1,82 +1,80 @@
 import streamlit as st
 import pandas as pd
-import glob
-import os
 from prayer_times_calculator import PrayerTimesCalculator
 from datetime import date
 
 # --- إعدادات الصفحة ---
-st.set_page_config(page_title="مواقيت الصلاة بتونس", page_icon="🕌")
-
-def find_data_files():
-    files = glob.glob("*.csv")
-    data_map = {}
-    for f in files:
-        if "tun_admgz_2022" in f:
-            # استخراج اسم الولاية من اسم الملف (مثلاً Bizerte)
-            state_name = f.split("-")[-1].replace(".csv", "").strip()
-            data_map[state_name] = f
-    return data_map
+st.set_page_config(page_title="مواقيت الصلاة بتونس", page_icon="🕌", layout="centered")
 
 @st.cache_data
-def load_state_csv(file_path):
+def load_data_from_text():
     try:
-        # قراءة الملف بدون رؤوس أعمدة (header=None) لتجنب خطأ الأسماء
-        df = pd.read_csv(file_path, header=None, encoding='utf-8')
+        # قراءة الملف 2085.txt مع تحديد المفصل كـ Tab (\t)
+        # الملف يحتوي على 3 أعمدة: الولاية، المعتمدية، العمادة
+        df = pd.read_csv("2085.txt", sep='\t', header=None, names=['الولاية', 'المعتمدية', 'العمادة'], encoding='utf-8')
         
-        # اختيار الأعمدة حسب الترتيب في ملفاتك:
-        # العمود 2: الولاية (بنزرت، تونس...)
-        # العمود 4: المعتمدية (منزل بورقيبة، العالية...)
-        # العمود 6: العمادة (حي الجلاء، الختمين...)
-        df_filtered = df[[2, 4, 6]].copy()
-        df_filtered.columns = ['الولاية', 'المعتمدية', 'العمادة']
-        
-        # تنظيف البيانات من المسافات
-        for col in df_filtered.columns:
-            df_filtered[col] = df_filtered[col].astype(str).str.strip()
+        # تنظيف البيانات من المسافات الزائدة
+        for col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
             
-        return df_filtered
+        return df
+    except FileNotFoundError:
+        st.error("❌ لم يتم العثور على الملف '2085.txt' في مجلد التطبيق.")
+        return None
     except Exception as e:
-        st.error(f"حدث خطأ في القراءة: {e}")
+        st.error(f"❌ حدث خطأ أثناء قراءة الملف: {e}")
         return None
 
-# --- الواجهة ---
+# --- واجهة المستخدم ---
 st.title("🕌 مواقيت الصلاة بتونس")
+st.write("بيانات مستخرجة من ملف 2085 المحلي")
 
-available_files = find_data_files()
+df = load_data_from_text()
 
-if not available_files:
-    st.error("❌ لم يتم العثور على ملفات CSV. تأكد من وجود الملفات في نفس المجلد.")
-else:
-    selected_state = st.selectbox("اختر الولاية", ["اختر"] + list(available_files.keys()))
+if df is not None:
+    # 1. اختيار الولاية
+    states = sorted(df['الولاية'].unique())
+    selected_state = st.selectbox("اختر الولاية", ["اختر ولاية"] + states)
 
-    if selected_state != "اختر":
-        df_state = load_state_csv(available_files[selected_state])
+    if selected_state != "اختر ولاية":
+        # 2. اختيار المعتمدية (تصفية بناءً على الولاية)
+        mask_state = df['الولاية'] == selected_state
+        districts = sorted(df[mask_state]['المعتمدية'].unique())
+        selected_district = st.selectbox("اختر المعتمدية", ["اختر معتمدية"] + districts)
         
-        if df_state is not None:
-            # استخراج المعتمديات الفريدة (سيظهر 14 فقط في بنزرت)
-            districts = sorted(df_state['المعتمدية'].unique())
-            selected_district = st.selectbox("اختر المعتمدية", ["اختر"] + districts)
+        if selected_district != "اختر معتمدية":
+            # 3. اختيار العمادة (تصفية بناءً على المعتمدية)
+            mask_district = (df['الولاية'] == selected_state) & (df['المعتمدية'] == selected_district)
+            villages = sorted(df[mask_district]['العمادة'].unique())
+            selected_village = st.selectbox("اختر العمادة", ["اختر عمادة"] + villages)
             
-            if selected_district != "اختر":
-                # فلترة العمادات بناءً على المعتمدية المختارة
-                villages = sorted(df_state[df_state['المعتمدية'] == selected_district]['العمادة'].unique())
-                selected_village = st.selectbox("اختر العمادة", ["اختر"] + villages)
+            if selected_village != "اختر عمادة":
+                # --- حساب المواقيت ---
+                # إحداثيات افتراضية للمركز (يمكنك توسيعها لاحقاً)
+                lat, lon = 36.80, 10.18 
                 
-                if selected_village != "اختر":
-                    # إحداثيات افتراضية
-                    lat, lon = 36.80, 10.18 
+                try:
+                    calc = PrayerTimesCalculator(
+                        latitude=lat, 
+                        longitude=lon, 
+                        calculation_method="mwl", 
+                        date=str(date.today())
+                    )
+                    times = calc.fetch_prayer_times()
                     
-                    try:
-                        calc = PrayerTimesCalculator(latitude=lat, longitude=lon, calculation_method="mwl", date=str(date.today()))
-                        times = calc.fetch_prayer_times()
+                    st.divider()
+                    st.success(f"📍 {selected_village}، {selected_district}، {selected_state}")
+                    
+                    # عرض المواقيت في أعمدة
+                    cols = st.columns(5)
+                    prayers = [
+                        ("الفجر", "Fajr"), ("الظهر", "Dhuhr"), 
+                        ("العصر", "Asr"), ("المغرب", "Maghrib"), 
+                        ("العشاء", "Isha")
+                    ]
+                    
+                    for i, (ar_name, en_key) in enumerate(prayers):
+                        cols[i].metric(ar_name, times[en_key])
                         
-                        st.success(f"الموقع: {selected_village} | {selected_district} | {selected_state}")
-                        
-                        # عرض المواقيت
-                        t_cols = st.columns(5)
-                        prayers = [("الفجر", "Fajr"), ("الظهر", "Dhuhr"), ("العصر", "Asr"), ("المغرب", "Maghrib"), ("العشاء", "Isha")]
-                        for i, (p_ar, p_en) in enumerate(prayers):
-                            t_cols[i].metric(p_ar, times[p_en])
-                    except:
-                        st.error("خطأ في جلب المواقيت.")
+                except Exception:
+                    st.error("حدث خطأ في جلب مواقيت الصلاة.")
